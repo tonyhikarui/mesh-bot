@@ -94,14 +94,15 @@ async function processAccount({ access_token, refresh_token, unique_id }, accoun
 // Main function to process all accounts
 async function main() {
     logger(banner, "debug");
-    const accounts = await readTokensAndIds();
-
-    if (accounts.length === 0) {
-        logger("No accounts to process.", "error");
-        return;
-    }
+    
 
     while(true){
+        const accounts = await readTokensAndIds();
+
+        if (accounts.length === 0) {
+            logger("No accounts to process.", "error");
+            return;
+        }
         for (let i = 0; i < accounts.length; i++) {
             const account = accounts[i];
             logger(`Processing Account ${i + 1}...`, "info");
