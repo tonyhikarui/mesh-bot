@@ -59,7 +59,8 @@ async function processAccount({ access_token, refresh_token, unique_id }, accoun
     };
 
     const profile = await info(unique_id, headers);
-    if (!profile) {
+    
+    if (profile.error) {
         logger(`Account ${accountIndex + 1} | ${unique_id}: Profile fetch failed, attempting to refresh token...`, "error");
         const newAccessToken = await refreshToken(refresh_token, accountIndex);
         if (!newAccessToken) return;
