@@ -46,3 +46,11 @@ This repository contains scripts for automating tasks such as user registration,
     ```bash
     npm run start
     ```
+
+## Additional Features:
+- **Auto Register And Verify Using Temp Mail**
+
+    ```bash
+    npm run autoreg
+    ```
+    ![auto register](image-2.png)

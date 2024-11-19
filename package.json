@@ -6,6 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
+    "autoreg": "node auto-register.js",
     "register": "node register.js"
   },
   "repository": {
@@ -23,6 +24,7 @@
   },
   "homepage": "https://github.com/Zlkcyber/mesh-bot#readme",
   "dependencies": {
+    "@cemalgnlts/mailjs": "^3.0.1",
     "chalk": "^5.3.0",
     "crypto": "^1.0.1",
     "fs": "^0.0.1-security",
