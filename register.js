@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import crypto from 'crypto';
 import { logger } from './logger.js';
 import { banner } from './banner.js';
+import { solveAntiCaptcha, solve2Captcha } from './utils/solver.js';
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -15,8 +16,9 @@ let headers = {
 };
 
 // Register Function
-async function register(name, email, password) {
+async function register(name, email, password, apiKey) {
     const payloadReg = {
+        captcha_token: await solveAntiCaptcha(apiKey),
         full_name: name,
         email: email,
         password: password,
@@ -32,8 +34,9 @@ async function register(name, email, password) {
 }
 
 // Login Function
-async function login(email, password) {
+async function login(email, password, apiKey) {
     const payloadLogin = {
+        captcha_token: await solveAntiCaptcha(apiKey),
         email: email,
         password: password,
     };
@@ -53,8 +56,9 @@ async function login(email, password) {
 }
 
 // Verify Email Function
-async function verify(email, otp) {
+async function verify(email, otp, apiKey) {
     const payloadVerify = {
+        captcha_token: await solveAntiCaptcha(apiKey),
         email: email,
         code: otp,
     };
@@ -69,7 +73,7 @@ async function verify(email, otp) {
 
 // Claim BNB Reward Function
 async function claimBnb() {
-    const payloadClaim = { mission_id: "ACCOUNT_VERIFICATION" };
+    const payloadClaim = { mission_id: "EMAIL_VERIFICATION" };
     const response = await coday(
         'https://api.meshchain.ai/meshmain/mission/claim',
         'POST',
@@ -108,16 +112,17 @@ async function main() {
         logger(banner, "debug");
 
         // Prompt user for input sequentially
+        const apiKey = await rl.question("Enter ApiKey from Anti-Captcha: ");
         const name = await rl.question("Enter your name: ");
         const email = await rl.question("Enter your email: ");
         const password = await rl.question("Enter your password: ");
 
         // Register the user
-        const registerMessage = await register(name, email, password);
+        const registerMessage = await register(name, email, password, apiKey);
         logger(`Register response: ${registerMessage}`);
 
         // Log in the user
-        const loginData = await login(email, password);
+        const loginData = await login(email, password, apiKey);
         if (!loginData) return;
 
         // Set headers with access token
@@ -128,7 +133,7 @@ async function main() {
 
         // Verify Email
         const otp = await rl.question("Enter OTP from Email: ");
-        const verifyMessage = await verify(email, otp);
+        const verifyMessage = await verify(email, otp, apiKey);
         logger(`Verify response: ${verifyMessage}`);
 
         // Claim Reward
