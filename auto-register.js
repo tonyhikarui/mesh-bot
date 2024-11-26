@@ -1,233 +1,191 @@
 import { coday, start } from './scripts.js';
-import readline from 'readline/promises'; 
-import fs from 'fs/promises'; 
+import readline from 'readline/promises';
+import fs from 'fs/promises';
 import crypto from 'crypto';
 import { logger } from './logger.js';
 import { banner } from './banner.js';
-import Mailjs from "@cemalgnlts/mailjs";
+import Mailjs from '@cemalgnlts/mailjs';
+import { solveAntiCaptcha, solve2Captcha } from './utils/solver.js';
 
 const mailjs = new Mailjs();
+const headers = { 'Content-Type': 'application/json' };
 
-let headers = {
-    'Content-Type': 'application/json',
-};
-
-// Register Function
-async function register(name, email, password, referral_code) {
-    const payloadReg = {
-        full_name: name,
-        email: email,
-        password: password,
-        referral_code: referral_code,
-    };
-    const response = await coday(
-        'https://api.meshchain.ai/meshmain/auth/email-signup',
-        'POST',
-        headers,
-        payloadReg
-    );
-    return response.message || "No message returned";
-}
-
-// Login Function
-async function login(email, password) {
-    const payloadLogin = {
-        email: email,
-        password: password,
-    };
-    const response = await coday(
-        'https://api.meshchain.ai/meshmain/auth/email-signin',
-        'POST',
-        headers,
-        payloadLogin
-    );
-
-    if (response.access_token) {
-        logger('Login successful!', "success");
-        return response;
-    }
-    logger('Login failed. Check your credentials.', "error");
-    return null;
-}
-
-// Verify Email Function
-async function verify(email, otp) {
-    const payloadVerify = {
-        email: email,
-        code: otp,
-    };
-    const response = await coday(
-        'https://api.meshchain.ai/meshmain/auth/verify-email',
-        'POST',
-        headers,
-        payloadVerify
-    );
-    return response.message || "Verify failed";
-}
-
-// Claim BNB Reward Function
-async function claimBnb(headers) {
-    const payloadClaim = { mission_id: "ACCOUNT_VERIFICATION" };
-    const response = await coday(
-        'https://api.meshchain.ai/meshmain/mission/claim',
-        'POST',
-        headers,
-        payloadClaim
-    );
-    return response.status || "Claim failed";
-}
-
-// Generate a 16-byte hexadecimal string
+// Helper: Generate a 16-byte hexadecimal string
 function generateHex() {
     return crypto.randomBytes(16).toString('hex');
 }
 
-// Initialize Node and Save Unique ID
-async function init(randomHex, headers) {
-    const url = "https://api.meshchain.ai/meshmain/nodes/link";
-    const payload = { "unique_id": randomHex, "node_type": "browser", "name": "Extension" };
-
-    const response = await coday(url, 'POST', headers, payload);
-    if (response.id) {
-        try {
-            // Append the unique ID to unique_id.txt
-            await fs.appendFile('unique_id.txt', `${response.unique_id}\n`, 'utf-8');
-            logger(`ID saved to unique_id.txt: ${response.unique_id}`, "success");
-        } catch (err) {
-            logger('Failed to save unique ID to file:', "error", err.message);
-        }
-    }
-    return response;
-}
-
-async function saveAccountToFile(email, password) {
+// Helper: Save data to a file
+async function saveToFile(filename, data) {
     try {
-        const accountData = `Email: ${email}, Password: ${password}\n`;
-        await fs.appendFile('accounts.txt', accountData, 'utf-8');
-        logger("Account credentials saved to accounts.txt");
+        await fs.appendFile(filename, `${data}\n`, 'utf-8');
+        logger(`Data saved to ${filename}`, 'success');
     } catch (error) {
-        console.error("Failed to save account credentials:", error);
+        logger(`Failed to save data to ${filename}: ${error.message}`, 'error');
     }
 }
 
+// Captcha Solver
+async function captchaSolver(type, apiKey) {
+    return type === '2captcha' || type === '1'
+        ? solve2Captcha(apiKey)
+        : solveAntiCaptcha(apiKey);
+}
+
+// Wait for OTP Email
+async function waitForEmail(mailjs, retries = 10, delay = 5000) {
+    for (let i = 0; i < retries; i++) {
+        const messages = await mailjs.getMessages();
+        if (messages.data.length > 0) {
+            const message = messages.data[0];
+            const fullMessage = await mailjs.getMessage(message.id);
+            const match = fullMessage.data.text.match(/Your verification code is:\s*(\d+)/);
+            if (match) return match[1];
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    throw new Error('Verification email not received.');
+}
+
+// Registration Function
+async function register(typeKey, apiKey, name, email, password, referralCode) {
+    try {
+        const payload = {
+            captcha_token: await captchaSolver(typeKey, apiKey),
+            full_name: name,
+            email,
+            password,
+            referral_code: referralCode,
+        };
+        const response = await coday('https://api.meshchain.ai/meshmain/auth/email-signup', 'POST', headers, payload);
+        if (!response || response.error) throw new Error(response.error || 'Unknown registration error.');
+        return response.message || 'No message returned.';
+    } catch (error) {
+        logger(`Register failed: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Login Function
+async function login(typeKey, apiKey, email, password) {
+    try {
+        const payload = {
+            captcha_token: await captchaSolver(typeKey, apiKey),
+            email,
+            password,
+        };
+        const response = await coday('https://api.meshchain.ai/meshmain/auth/email-signin', 'POST', headers, payload);
+        if (response.access_token) {
+            logger('Login successful!', 'success');
+            return response;
+        }
+        throw new Error('Login failed. Check your credentials.');
+    } catch (error) {
+        logger(`Login error: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Verify Email Function
+async function verify(typeKey, apiKey, email, otp) {
+    try {
+        const payload = {
+            captcha_token: await captchaSolver(typeKey, apiKey),
+            email,
+            code: otp,
+        };
+        const response = await coday('https://api.meshchain.ai/meshmain/auth/verify-email', 'POST', headers, payload);
+        if (!response || response.error) throw new Error(response.error || 'Verification failed.');
+        return response.message || 'Verification succeeded.';
+    } catch (error) {
+        logger(`Email verification error: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Claim BNB Reward
+async function claimBnb(headers) {
+    try {
+        const payload = { mission_id: 'EMAIL_VERIFICATION' };
+        const response = await coday('https://api.meshchain.ai/meshmain/mission/claim', 'POST', headers, payload);
+        logger(`Claim response: ${JSON.stringify(response)}`, 'debug');
+        return response.status;
+    } catch (error) {
+        logger(`Claim error: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Link Node Function
+async function initNode(randomHex, headers) {
+    try {
+        const payload = { unique_id: randomHex, node_type: 'browser', name: 'Extension' };
+        const response = await coday('https://api.meshchain.ai/meshmain/nodes/link', 'POST', headers, payload);
+        if (!response.id) throw new Error('Failed to link node.');
+        await saveToFile('unique_id.txt', response.unique_id);
+        return response;
+    } catch (error) {
+        logger(`Node initialization error: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// Main Function: Manage Mail and Registration
 async function manageMailAndRegister() {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
     try {
-        logger(banner, "debug");
-        const input = await rl.question("How Many Accounts You Want To Create: ");
-        const number = parseFloat(input);
-        let refCode;
-        const ref = await rl.question("Do Your Want Using Refferal Code (y/N): ");
-        if (ref === 'N') {
-            refCode = await rl.question("Enter Your Refferal Code: ");
-        } else {
-            refCode = "IOVO3G77Q0QQ";
-        }
-        logger(`Register Accounts Using Referral Code: ${refCode}`, "info");
+        logger(banner, 'debug');
+        const typeKey = await rl.question('Choose Captcha API (1: 2Captcha, 2: Anti-Captcha): ');
+        const apiKey = await rl.question('Enter Captcha API Key: ');
+        if (!apiKey) throw new Error('Invalid API key.');
 
-        for (let i = 0; i < number; i++) {
+        const input = await rl.question('How many accounts to create? ');
+        const accountCount = parseInt(input, 10);
+        if (isNaN(accountCount) || accountCount <= 0) throw new Error('Invalid account count.');
+
+        const ref = await rl.question('Use my referral code? (y/N): ');
+        const referralCode = ref.toLowerCase() === 'n'
+            ? await rl.question('Enter referral code: ')
+            : 'IOVO3G77Q0QQ';
+
+        logger(`Referral code: ${referralCode}`, 'info');
+
+        for (let i = 0; i < accountCount; i++) {
             try {
-                // Step 1: Create a temporary email account
                 const account = await mailjs.createOneAccount();
                 const email = account.data.username;
                 const password = account.data.password;
                 const name = email;
 
-                if (email && password) {
-                    logger(`Account #${i + 1} created. Name: ${name}, Email: ${email}`, "debug");
+                logger(`Creating account #${i + 1} - Email: ${email}`, 'debug');
+                await mailjs.login(email, password);
+                logger('Logged into temporary email.');
 
-                    // Save email and password to a file
-                    await saveAccountToFile(email, password);
+                await register(typeKey, apiKey, name, email, password, referralCode);
 
-                    // Step 2: Register the user
-                    const registerMessage = await register(name, email, password, refCode);
-                    logger(`Register response: ${registerMessage}`);
+                const otp = await waitForEmail(mailjs);
+                logger(`OTP retrieved: ${otp}`, 'success');
 
-                    // Step 3: Log in the user
-                    const loginData = await login(email, password);
-                    if (!loginData) throw new Error("Login failed.");
-                    
-                    const accountHeaders = {
-                        ...headers,
-                        'Authorization': `Bearer ${loginData.access_token}`,
-                    };
+                const loginData = await login(typeKey, apiKey, email, password);
+                const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
 
-                    // Log in to email account
-                    await mailjs.login(email, password);
+                await verify(typeKey, apiKey, email, otp);
+                await claimBnb(accountHeaders);
 
-                    logger("Waiting for OTP...");
-                    const otp = await new Promise((resolve, reject) => {
-                        mailjs.on("arrive", async (msg) => {
-                            try {
-                                logger(`Message id: ${msg.id} has arrived.`);
-                                const fullMessage = await mailjs.getMessage(msg.id);
-                                const messageText = fullMessage.data.text;
+                const randomHex = generateHex();
+                logger(`Initializing node with ID: ${randomHex}`, 'info');
+                await initNode(randomHex, accountHeaders);
 
-                                // Extract OTP
-                                const regex = /Your verification code is:\s*(\d+)/;
-                                const match = messageText.match(regex);
-
-                                if (match) {
-                                    resolve(match[1]);
-                                    mailjs.off();
-                                } else {
-                                    reject(new Error("Verification code not found."));
-                                    mailjs.off();
-                                }
-                            } catch (err) {
-                                reject(err);
-                            }
-                        });
-                        
-                    });
-
-                    logger(`Verification Code: ${otp}`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                    // Step 4: Verify Email
-                    const verifyMessage = await verify(email, otp);
-                    logger("Verify email success", "success");
-
-                    // Step 5: Claim Reward
-                    const claimMessage = await claimBnb(accountHeaders);
-                    logger("Claim 0.01 BNB success", "success");
-
-                    // Step 6: Create and link a unique ID
-                    const randomHex = generateHex();
-                    logger(`Create Extension ID and Init To accounts: ${randomHex}`, "info");
-                    const linkResponse = await init(randomHex, accountHeaders);
-
-                    // Step 7: Save tokens and unique ID
-                    await fs.appendFile(
-                        'token.txt',
-                        `${loginData.access_token}|${loginData.refresh_token}\n`,
-                        'utf-8'
-                    );
-                    logger('Tokens saved to token.txt', "success");
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                    // Step 8: Start the node
-                    logger(`Starting Extension ID: ${randomHex}`);
-                    const starting = await start(randomHex, accountHeaders);
-                    if (starting) {
-                        logger(`Extension ID: ${randomHex} is active`, "success");
-                    }
-                } else {
-                    logger(`Account #${i + 1} Created is Failed Retrying...`, "error");
-                    i--;
-                }
-                
+                await saveToFile('accounts.txt', `Email: ${email}, Password: ${password}`);
+                await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
+                logger(`Account #${i + 1} created successfully.`, 'success');
             } catch (error) {
-                logger(`Error in account ${i + 1}: ${error.message}`, "error");
+                logger(`Error with account #${i + 1}: ${error.message}`, 'error');
             }
-            await new Promise(resolve => setTimeout(resolve, 3000));
         }
     } catch (error) {
-        console.error("An error occurred:", error);
+        logger(`Error: ${error.message}`, 'error');
     } finally {
         rl.close();
     }
