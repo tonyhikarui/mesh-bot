@@ -26,7 +26,12 @@ async function coday(url, method, headers, payloadData = null) {
 async function estimate(id, headers) {
     const url = 'https://api.meshchain.ai/meshmain/rewards/estimate';
     const result = await coday(url, 'POST', headers, { unique_id: id });
+    if (result.status === 400){
+      logger("Mine Not Start, Starting Mine...")
+      await start(id, headers);
 
+    }
+    
     return result || undefined;
 }
 
