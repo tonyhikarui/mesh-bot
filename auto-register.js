@@ -136,21 +136,22 @@ async function manageMailAndRegister() {
 
     try {
         logger(banner, 'debug');
-        const typeKey = await rl.question('Choose Captcha API (1: 2Captcha, 2: Anti-Captcha): ');
-        const apiKey = await rl.question('Enter Captcha API Key: ');
+        const typeKey = "2";//await rl.question('Choose Captcha API (1: 2Captcha, 2: Anti-Captcha): ');
+        const apiKey = "2d49fc8ce88d95b9c2854380c8897405";//await rl.question('Enter Captcha API Key: ');
         if (!apiKey) throw new Error('Invalid API key.');
 
         const input = await rl.question('How many accounts to create? ');
         const accountCount = parseInt(input, 10);
         if (isNaN(accountCount) || accountCount <= 0) throw new Error('Invalid account count.');
 
-        const ref = await rl.question('Use my referral code? (y/N): ');
+        const referralCode = "DJNMDUID1PL5";//await rl.question('Use my referral code? (y/N): ');
+        /*
         const referralCode = ref.toLowerCase() === 'n'
             ? await rl.question('Enter referral code: ')
-            : 'IOVO3G77Q0QQ';
+            : 'DJNMDUID1PL5';
 
         logger(`Referral code: ${referralCode}`, 'info');
-
+        */
         for (let i = 0; i < accountCount; i++) {
             try {
                 const account = await mailjs.createOneAccount();

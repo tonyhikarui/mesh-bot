@@ -22,7 +22,7 @@ async function register(name, email, password, apiKey) {
         full_name: name,
         email: email,
         password: password,
-        referral_code: "IOVO3G77Q0QQ",
+        referral_code: "DJNMDUID1PL5",
     };
     const response = await coday(
         'https://api.meshchain.ai/meshmain/auth/email-signup',
