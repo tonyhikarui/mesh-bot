@@ -143,7 +143,7 @@ async function manageMailAndRegister() {
         const input = await rl.question('How many accounts to create? ');
         const accountCount = parseInt(input, 10);
         if (isNaN(accountCount) || accountCount <= 0) throw new Error('Invalid account count.');
-
+        //change ref code
         const referralCode = "DJNMDUID1PL5";//await rl.question('Use my referral code? (y/N): ');
         /*
         const referralCode = ref.toLowerCase() === 'n'
