@@ -6,6 +6,42 @@ import { logger } from './logger.js';
 import { banner } from './banner.js';
 import Mailjs from '@cemalgnlts/mailjs';
 import { solveAntiCaptcha, solve2Captcha } from './utils/solver.js';
+//jeff add
+var Imap = require("imap");
+var mailParser = require("mailparser");
+var Promise = require("bluebird");
+Promise.longStackTraces();
+const util = require('util');
+//const simpleParser = require('mailparser');
+
+function inspect(obj) {
+    return util.inspect(obj);
+}
+var imapConfig = {
+    user: '123@yahoo.com',
+    password: '123',
+    host: 'imap.mail.yahoo.com',
+    port: 993,
+    tls: true
+};
+var imap;
+function openInbox(cb) {
+    imap.openBox('INBOX', false, cb);
+}
+function processMessage(msg) {
+    mailParser.simpleParser(msg, 'skipHtmlToText', (err, parsed) => {
+        if (err) {
+            console.log(err);
+        } else {
+            // 提取消息文本中的4个数字
+            const numbers = parsed.text.match(/is:\s*(\d{4})/);
+            if (numbers) {
+                console.log('Found numbers in the email:', numbers[1]);
+                return numbers[1];
+            }
+        }
+    });
+}
 
 const mailjs = new Mailjs();
 const headers = { 'Content-Type': 'application/json' };
@@ -46,6 +82,69 @@ async function waitForEmail(mailjs, retries = 10, delay = 5000) {
     }
     throw new Error('Verification email not received.');
 }
+
+
+
+//jeff addd
+async function waitForOTP(email, password) {
+    imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.mail.yahoo.com',
+        port: 993,
+        tls: true
+    };
+    imap = new Imap(imapConfig);
+    Promise.promisifyAll(imap);
+    const retries = 10;
+    const delay = 5000;
+    for (let i = 0; i < retries; i++) {
+        imap.once('ready', function () {
+            openInbox((function (err, box), iamp) {
+                if(err) throw err;
+
+                imap.search(['SEEN', ['SUBJECT', 'MeshChain Account Verification']], function (err, results) {
+                    if (err) {
+                        console.error('Error searching emails: ' + err);
+                        imap.end();
+                        return;
+                    }
+                    if (results.length === 0) {
+                        console.log('No unseen emails found');
+                        imap.end();
+                        return;
+
+                    } else {
+                        console.log('Found ' + results.length);
+                        // Fetch emails...
+
+                        const f = imap.fetch(results, { bodies: '', markSeen: true });
+                        //      var f = imap.seq.fetch(box.messages.total + ':*', { bodies: ['HEADER.FIELDS (FROM)','TEXT'] });
+                        f.on('message', function (msg, seqno) {
+                            //console.log('Message #%d', seqno);
+
+                            var prefix = '(#' + seqno + ') ';
+                            msg.on('body', function (stream, info) {
+                                processMessage(stream);
+                            });
+
+                            f.once('error', function (err) {
+                                console.log('Fetch error: ' + err);
+                            });
+                            f.once('end', function () {
+                                console.log('Done fetching all messages!');
+                                imap.end();
+                            });
+                        }
+                });
+            });
+        });
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }//rery
+
+    imap.connect();
+}
+
 
 // Registration Function
 async function register(typeKey, apiKey, name, email, password, referralCode) {
@@ -140,45 +239,47 @@ async function manageMailAndRegister() {
         const apiKey = "2d49fc8ce88d95b9c2854380c8897405";//await rl.question('Enter Captcha API Key: ');
         if (!apiKey) throw new Error('Invalid API key.');
 
-        const input = await rl.question('How many accounts to create? ');
-        const accountCount = parseInt(input, 10);
-        if (isNaN(accountCount) || accountCount <= 0) throw new Error('Invalid account count.');
-        //change ref code
-        const referralCode = "DJNMDUID1PL5";//await rl.question('Use my referral code? (y/N): ');
-        /*
-        const referralCode = ref.toLowerCase() === 'n'
-            ? await rl.question('Enter referral code: ')
-            : 'DJNMDUID1PL5';
 
-        logger(`Referral code: ${referralCode}`, 'info');
-        */
-        for (let i = 0; i < accountCount; i++) {
+        const accounts = await readToken("accounts.txt");
+        const proxies = await readToken("proxy.txt");
+
+
+        for (let i = 0; i < accounts.length; i++) {
+            const account = accounts[i];
+            var acc = account.toString().split(":");
+            const email = acc[0];
+            const password = acc[1];
+            const proxy = proxies[i];
+            var names = email.toString().split("@");
+            const name = names[0];
+            console.log("name is: ", name);
+            await delay(5000);
+
+            const referralCode = "DJNMDUID1PL5";//await rl.question('Use my referral code? (y/N): ');
             try {
-                const account = await mailjs.createOneAccount();
-                const email = account.data.username;
-                const password = account.data.password;
-                const name = email;
-
+                /*
                 logger(`Creating account #${i + 1} - Email: ${email}`, 'debug');
                 await mailjs.login(email, password);
                 logger('Logged into temporary email.');
-
+                */
                 await register(typeKey, apiKey, name, email, password, referralCode);
 
-                const otp = await waitForEmail(mailjs);
-                logger(`OTP retrieved: ${otp}`, 'success');
+                //const otp = await waitForEmail(mailjs);
+                const otp = await waitForOTP(email, password);
 
-                const loginData = await login(typeKey, apiKey, email, password);
-                const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
+                logger(`OTP retrieved: ${otp}`, 'success');
 
                 await verify(typeKey, apiKey, email, otp);
                 await claimBnb(accountHeaders);
+
+                const loginData = await login(typeKey, apiKey, email, password);
+                const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
 
                 const randomHex = generateHex();
                 logger(`Initializing node with ID: ${randomHex}`, 'info');
                 await initNode(randomHex, accountHeaders);
 
-                await saveToFile('accounts.txt', `Email: ${email}, Password: ${password}`);
+                //await saveToFile('accounts.txt', `Email: ${email}, Password: ${password}`);
                 await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
                 logger(`Account #${i + 1} created successfully.`, 'success');
             } catch (error) {
