@@ -1,13 +1,16 @@
+import "./addRequire.js";
+import { readToken, delay } from "./utils/file.js";
 import { coday, start } from './scripts.js';
 import readline from 'readline/promises';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 import { logger } from './logger.js';
 import { banner } from './banner.js';
-import Mailjs from '@cemalgnlts/mailjs';
+//import Mailjs from '@cemalgnlts/mailjs';
 import { solveAntiCaptcha, solve2Captcha } from './utils/solver.js';
+const { promisify } = require('util');
 //jeff add
-var Imap = require("imap");
+const  Imap = require("imap");
 var mailParser = require("mailparser");
 var Promise = require("bluebird");
 Promise.longStackTraces();
@@ -24,26 +27,32 @@ var imapConfig = {
     port: 993,
     tls: true
 };
-var imap;
+//const imap = new Imap(imapConfig);
 function openInbox(cb) {
     imap.openBox('INBOX', false, cb);
 }
-function processMessage(msg) {
-    mailParser.simpleParser(msg, 'skipHtmlToText', (err, parsed) => {
-        if (err) {
-            console.log(err);
-        } else {
-            // 提取消息文本中的4个数字
-            const numbers = parsed.text.match(/is:\s*(\d{4})/);
-            if (numbers) {
-                console.log('Found numbers in the email:', numbers[1]);
-                return numbers[1];
-            }
-        }
-    });
-}
 
-const mailjs = new Mailjs();
+async function processMessage(msg) {
+    return new Promise((resolve, reject) => {
+      mailParser.simpleParser(msg, 'skipHtmlToText', (err, parsed) => {
+        if (err) {
+          console.error(err);
+          reject(err); // 拒绝 Promise 并传递错误
+        } else {
+          // 提取消息文本中的4个数字
+          const numbers = parsed.text.match(/is:\s*(\d{4})/);
+          if (numbers) {
+            console.log('Found numbers in the email:', numbers[1]);
+            resolve(numbers[1]); // 解决 Promise 并传递找到的数字
+          } else {
+            reject(new Error('No numbers found in the email.')); // 如果没有找到数字，则拒绝 Promise
+          }
+        }
+      });
+    });
+  }
+
+
 const headers = { 'Content-Type': 'application/json' };
 
 // Helper: Generate a 16-byte hexadecimal string
@@ -68,6 +77,7 @@ async function captchaSolver(type, apiKey) {
         : solveAntiCaptcha(apiKey);
 }
 
+/*
 // Wait for OTP Email
 async function waitForEmail(mailjs, retries = 10, delay = 5000) {
     for (let i = 0; i < retries; i++) {
@@ -83,67 +93,8 @@ async function waitForEmail(mailjs, retries = 10, delay = 5000) {
     throw new Error('Verification email not received.');
 }
 
+*/
 
-
-//jeff addd
-async function waitForOTP(email, password) {
-    imapConfig = {
-        user: email,
-        password: password,
-        host: 'imap.mail.yahoo.com',
-        port: 993,
-        tls: true
-    };
-    imap = new Imap(imapConfig);
-    Promise.promisifyAll(imap);
-    const retries = 10;
-    const delay = 5000;
-    for (let i = 0; i < retries; i++) {
-        imap.once('ready', function () {
-            openInbox((function (err, box), iamp) {
-                if(err) throw err;
-
-                imap.search(['SEEN', ['SUBJECT', 'MeshChain Account Verification']], function (err, results) {
-                    if (err) {
-                        console.error('Error searching emails: ' + err);
-                        imap.end();
-                        return;
-                    }
-                    if (results.length === 0) {
-                        console.log('No unseen emails found');
-                        imap.end();
-                        return;
-
-                    } else {
-                        console.log('Found ' + results.length);
-                        // Fetch emails...
-
-                        const f = imap.fetch(results, { bodies: '', markSeen: true });
-                        //      var f = imap.seq.fetch(box.messages.total + ':*', { bodies: ['HEADER.FIELDS (FROM)','TEXT'] });
-                        f.on('message', function (msg, seqno) {
-                            //console.log('Message #%d', seqno);
-
-                            var prefix = '(#' + seqno + ') ';
-                            msg.on('body', function (stream, info) {
-                                processMessage(stream);
-                            });
-
-                            f.once('error', function (err) {
-                                console.log('Fetch error: ' + err);
-                            });
-                            f.once('end', function () {
-                                console.log('Done fetching all messages!');
-                                imap.end();
-                            });
-                        }
-                });
-            });
-        });
-        await new Promise(resolve => setTimeout(resolve, delay));
-    }//rery
-
-    imap.connect();
-}
 
 
 // Registration Function
@@ -229,6 +180,167 @@ async function initNode(randomHex, headers) {
     }
 }
 
+/*
+//jeff addd
+function waitForOTP(email, password) {
+    imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.mail.yahoo.com',
+        port: 993,
+        tls: true
+    };
+    imap = new Imap(imapConfig);
+    Promise.promisifyAll(imap);
+
+        imap.once('ready', function () {
+            console.log('open inbox');
+            openInbox(function (err, box) {                
+                if(err) throw err;
+                console.log('search email content');
+                imap.search(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']], function (err, results) {
+                    if (err) {
+                        console.error('Error searching emails: ' + err);
+                        imap.end();
+                        return;
+                    }
+                    if (results.length === 0) {
+                        console.log('No unseen emails found');
+                        imap.end();
+                        return;
+
+                    } else {
+                        console.log('Found ' + results.length);
+                        // Fetch emails...
+
+                        const f = imap.fetch(results, { bodies: '', markSeen: false });
+                        //      var f = imap.seq.fetch(box.messages.total + ':*', { bodies: ['HEADER.FIELDS (FROM)','TEXT'] });
+                        f.on('message', function (msg, seqno) {
+                            //console.log('Message #%d', seqno);
+
+                            var prefix = '(#' + seqno + ') ';
+                            msg.on('body', function (stream, info) {
+                                processMessage(stream).then((numbers) => {
+                                    console.log('Numbers extracted:', numbers);
+                                    var otp = numbers;
+                                    return otp;
+                                  }).catch((error) => {
+                                    console.error('Failed to process message:', error);
+                                  });
+                                
+
+                            });
+
+                            f.once('error', function (err) {
+                                console.log('Fetch error: ' + err);
+                            });
+                            f.once('end', function () {
+                                console.log('Done fetching all messages!');
+                                imap.end();
+                            });
+                        });
+                    }    
+                });
+            });
+        });
+
+    imap.connect();
+}
+
+*/
+
+
+
+
+
+async function waitForOTP(email, password) {
+  const imapConfig = {
+    user: email,
+    password: password,
+    host: 'imap.mail.yahoo.com',
+    port: 993,
+    tls: true
+  };
+
+  const imap = new Imap(imapConfig);
+
+  // Promisify the required IMAP methods
+  const openInboxAsync = promisify(imap.openBox.bind(imap));
+  const searchAsync = promisify(imap.search.bind(imap));
+  const fetchAsync = promisify(imap.fetch.bind(imap));
+
+  return new Promise((resolve, reject) => {
+    imap.once('ready', async () => {
+      try {
+        console.log('Opening inbox...');
+        const box = await openInboxAsync('INBOX', false);
+
+        console.log('Searching for emails...');
+        const results = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
+
+        if (results.length === 0) {
+          console.log('No unseen emails found');
+          imap.end();
+          return reject(new Error('No OTP email found'));
+        }
+
+        console.log('Found ' + results.length + ' unseen emails');
+
+        // Now, fetch the email messages
+        const fetch = imap.fetch(results, { bodies: '', markSeen: false });
+
+        fetch.on('message', (msg, seqno) => {
+          console.log(`Fetching message #${seqno}`);
+
+          msg.on('body', async (stream) => {
+            try {
+              // Process the email body stream to extract OTP
+              const otp = await processMessage(stream);  // Assuming processMessage returns OTP
+              console.log('OTP extracted:', otp);
+
+              imap.end();
+              resolve(otp);  // Return the OTP once it's extracted
+            } catch (err) {
+              console.error('Error processing message:', err);
+              imap.end();
+              reject(err);  // Reject in case of any processing error
+            }
+          });
+
+          msg.once('end', () => {
+            console.log(`Finished processing message #${seqno}`);
+          });
+        });
+
+        fetch.once('error', (err) => {
+          console.error('Fetch error:', err);
+          imap.end();
+          reject(err);
+        });
+
+        fetch.once('end', () => {
+          console.log('Done fetching messages!');
+        });
+
+      } catch (err) {
+        console.error('Error during IMAP operations:', err);
+        imap.end();
+        reject(err);
+      }
+    });
+
+    imap.once('error', (err) => {
+      console.error('IMAP connection error:', err);
+      imap.end();
+      reject(err);
+    });
+
+    imap.connect();
+  });
+}
+
+  
+
 // Main Function: Manage Mail and Registration
 async function manageMailAndRegister() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -253,28 +365,44 @@ async function manageMailAndRegister() {
             var names = email.toString().split("@");
             const name = names[0];
             console.log("name is: ", name);
+            console.log("email is: ", email);
+            console.log("password is: ", password);
             await delay(5000);
 
             const referralCode = "DJNMDUID1PL5";//await rl.question('Use my referral code? (y/N): ');
             try {
-                /*
+                
                 logger(`Creating account #${i + 1} - Email: ${email}`, 'debug');
+                /*
                 await mailjs.login(email, password);
                 logger('Logged into temporary email.');
                 */
-                await register(typeKey, apiKey, name, email, password, referralCode);
+                //await register(typeKey, apiKey, name, email, password, referralCode);
 
-                //const otp = await waitForEmail(mailjs);
-                const otp = await waitForOTP(email, password);
-
-                logger(`OTP retrieved: ${otp}`, 'success');
-
-                await verify(typeKey, apiKey, email, otp);
-                await claimBnb(accountHeaders);
-
+                //var otp = waitForOTP(email, password);
+                waitForOTP(email,password)
+                .then(otp => {
+                    logger(`OTP retrieved: ${otp}`, 'success');
+                    const loginData = async login(typeKey, apiKey, email, password);
+                    const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
+                    logger(`verifying`, 'debug');
+                    async verify(typeKey, apiKey, email, otp);
+                    // 在这里处理OTP，比如进行登录或验证
+                })
+                .catch(error => {
+                  console.error('Error waiting for OTP:', error);
+                  // 处理错误，比如提示用户重试或检查网络连接
+                });
+                
+                
+                
                 const loginData = await login(typeKey, apiKey, email, password);
                 const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
-
+                logger(`verifying`, 'debug');
+                await verify(typeKey, apiKey, email, otp);
+                
+               //await claimBnb(accountHeaders);
+                /*    
                 const randomHex = generateHex();
                 logger(`Initializing node with ID: ${randomHex}`, 'info');
                 await initNode(randomHex, accountHeaders);
@@ -282,6 +410,8 @@ async function manageMailAndRegister() {
                 //await saveToFile('accounts.txt', `Email: ${email}, Password: ${password}`);
                 await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
                 logger(`Account #${i + 1} created successfully.`, 'success');
+                */
+                
             } catch (error) {
                 logger(`Error with account #${i + 1}: ${error.message}`, 'error');
             }
