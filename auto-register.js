@@ -282,10 +282,6 @@ function waitForOTP(email, password) {
 
 */
 
-
-
-
-
 async function waitForOTP(email, password) {
     const imapConfig = {
         user: email,
@@ -372,7 +368,7 @@ async function waitForOTP(email, password) {
     });
 }
 
-async function waitForOTPWithRetry(email, password, maxRetries = 3, delay = 2000) {
+async function waitForOTPWithRetry(email, password, maxRetries = 3, delay = 20000) {
     let attempt = 0;
 
     while (attempt < maxRetries) {
