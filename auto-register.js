@@ -299,62 +299,67 @@ async function waitForOTP(email, password) {
     const fetchAsync = promisify(imap.fetch.bind(imap));
 
     return new Promise((resolve, reject) => {
+        /*
+        imap.once('ready', function() {
+            imap.getBoxes((err, boxes) => {
+                if (err) {
+                    console.error('Error getting boxes:', err);
+                    return;
+                }
+                console.log('IMAP Folders:', boxes);
+                // You should see the folder names here, including 'Spam' or 'INBOX.Spam'
+                imap.end();
+            });
+        });
+        */
+
+
         imap.once('ready', async () => {
             try {
-                console.log('Opening inbox...');
-                const box = await openInboxAsync('INBOX', false);
+                // Open INBOX folder
+                console.log('Opening INBOX...');
+                const boxInInbox = await openInboxAsync('INBOX', false);
 
-                console.log('Searching for emails...');
-                const results = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
+                console.log('Searching for emails in INBOX...');
+                const resultsInInbox = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
 
-                if (results.length === 0) {
-                    console.log('No unseen emails found');
+                // Open Bulk folder
+                console.log('Opening Bulk folder...');
+                const boxInBulk = await openInboxAsync('Bulk', false);
+
+                console.log('Searching for emails in Bulk...');
+                const resultsInBulk = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
+
+                // Combine the results from both folders
+                const allResults = [...resultsInInbox, ...resultsInBulk];
+
+                if (allResults.length === 0) {
+                    console.log('No unseen emails found in INBOX or Bulk folder');
                     imap.end();
-                    return reject(new Error('No OTP email found'));
+                    return Promise.reject(new Error('No OTP email found'));
                 }
 
-                console.log('Found ' + results.length + ' unseen emails');
+                console.log(`Found ${allResults.length} unseen emails in INBOX or Bulk folder`);
 
-                // Now, fetch the email messages
-                const fetch = imap.fetch(results, { bodies: '', markSeen: false });
+                // Fetch emails from both folders in parallel using Promise.all
+                const [otpFromInbox, otpFromBulk] = await Promise.all([
+                    fetchEmailsFromFolder(imap, resultsInInbox),
+                    fetchEmailsFromFolder(imap, resultsInBulk)
+                ]);
+        
+                // You can choose to return or process either OTP or both
+                if (otpFromInbox) {
+                    console.log('OTP from Inbox:', otpFromInbox);
+                }
+        
+                if (otpFromBulk) {
+                    console.log('OTP from Bulk:', otpFromBulk);
+                }
 
-                fetch.on('message', (msg, seqno) => {
-                    console.log(`Fetching message #${seqno}`);
-
-                    msg.on('body', async (stream) => {
-                        try {
-                            // Process the email body stream to extract OTP
-                            const otp = await processMessage(stream);  // Assuming processMessage returns OTP
-                            console.log('OTP extracted:', otp);
-
-                            imap.end();
-                            resolve(otp);  // Return the OTP once it's extracted
-                        } catch (err) {
-                            console.error('Error processing message:', err);
-                            imap.end();
-                            reject(err);  // Reject in case of any processing error
-                        }
-                    });
-
-                    msg.once('end', () => {
-                        console.log(`Finished processing message #${seqno}`);
-                    });
-                });
-
-                fetch.once('error', (err) => {
-                    console.error('Fetch error:', err);
-                    imap.end();
-                    reject(err);
-                });
-
-                fetch.once('end', () => {
-                    console.log('Done fetching messages!');
-                });
-
-            } catch (err) {
-                console.error('Error during IMAP operations:', err);
+            } catch (error) {
+                console.error('Error fetching emails:', error);
                 imap.end();
-                reject(err);
+                return Promise.reject(error);
             }
         });
 
@@ -368,7 +373,75 @@ async function waitForOTP(email, password) {
     });
 }
 
-async function waitForOTPWithRetry(email, password, maxRetries = 3, delay = 20000) {
+
+async function fetchEmailsFromFolder(imap, results, timeout = 10000) {
+    if (results.length === 0) {
+        console.log('No emails to fetch.');
+        return null; // Return null if no emails
+    }
+
+    return new Promise((resolve, reject) => {
+        console.log(`Starting to fetch ${results.length} email(s) from folder`);
+
+        const fetch = imap.fetch(results, { bodies: '', markSeen: true });
+
+        let timeoutId = setTimeout(() => {
+            console.log('Fetch timed out');
+            fetch.abort(); // Abort fetch operation after the timeout
+            reject(new Error('Message fetch timed out'));
+        }, timeout);
+
+        fetch.on('message', (msg, seqno) => {
+            console.log(`Fetching message #${seqno}`);
+
+            let emailBody = '';
+
+            msg.on('body', (stream) => {
+                console.log(`Streaming body of message #${seqno}`);
+
+                stream.on('data', (chunk) => {
+                    console.log(`Received chunk for message #${seqno}: ${chunk.toString().slice(0, 100)}...`); // Log first 100 chars of chunk
+                    emailBody += chunk.toString(); // Collect body data
+                });
+
+                stream.on('end', async () => {
+                    console.log(`Finished streaming body of message #${seqno}`);
+                    try {
+                        console.log(`Processing email body for OTP extraction: ${emailBody.slice(0, 100)}...`); // Log first 100 chars of email body
+                        const otp = await processMessage(emailBody); // Process OTP from email body
+                        console.log('OTP extracted:', otp);
+                        clearTimeout(timeoutId); // Clear timeout on successful resolution
+                        resolve(otp); // Resolve with OTP if found
+                    } catch (err) {
+                        console.error(`Error processing message #${seqno}:`, err);
+                        clearTimeout(timeoutId); // Clear timeout if processing fails
+                        reject(err);  // Reject the promise if error in processing
+                    }
+                });
+            });
+
+            msg.once('end', () => {
+                console.log(`Finished processing message #${seqno}`);
+            });
+        });
+
+        fetch.once('error', (err) => {
+            console.error('Fetch error:', err);
+            clearTimeout(timeoutId); // Clear timeout on fetch error
+            reject(err);  // Reject if fetch fails
+        });
+
+        fetch.once('end', () => {
+            console.log('Done fetching messages!');
+            clearTimeout(timeoutId); // Clear timeout on fetch end
+        });
+    });
+}
+
+
+
+
+async function waitForOTPWithRetry(email, password, maxRetries = 3, delay = 5000) {
     let attempt = 0;
 
     while (attempt < maxRetries) {
@@ -476,7 +549,7 @@ async function manageMailAndRegister() {
                 logger(`Creating account #${i + 1} - Email: ${email}`, 'debug');
 
                 try {
-                    const message = await register(typeKey, apiKey, name, email, password, referralCode);
+                    //const message = await register(typeKey, apiKey, name, email, password, referralCode);
                     logger(`Registration Result:: ${message}`, 'debug');
                 } catch (error) {
                     console.error('Registration failed:', error.message);
