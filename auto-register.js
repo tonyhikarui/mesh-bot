@@ -425,6 +425,7 @@ async function fetchEmailsFromFolder(imap, results, timeout = 10000) {
             });
         });
 
+        
         fetch.once('error', (err) => {
             console.error('Fetch error:', err);
             clearTimeout(timeoutId); // Clear timeout on fetch error
