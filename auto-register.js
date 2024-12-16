@@ -235,7 +235,7 @@ async function waitForOTP(email, password) {
                 console.log(`Found ${resultsInInbox.length} unseen emails in INBOX or Bulk folder`);
 
                 // Now, fetch the email messages
-                const fetch = imap.fetch(resultsInInbox, { bodies: '', markSeen: false });
+                const fetch = imap.fetch(resultsInInbox, { bodies: '', markSeen: true });
 
                 fetch.on('message', (msg, seqno) => {
                     console.log(`Fetching message #${seqno}`);
