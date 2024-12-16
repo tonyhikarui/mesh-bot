@@ -16,6 +16,7 @@ var Promise = require("bluebird");
 Promise.longStackTraces();
 const util = require('util');
 //const simpleParser = require('mailparser');
+const fs_account = require('fs').promises; 
 const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -121,42 +122,44 @@ async function register(typeKey, apiKey, name, email, password, referralCode) {
             headers,
             payloadReg
         );
-        //console.log('Response object:', response);
+        console.log('Response object:', response);
 
-        // Check if the response object exists and contains data
-        if (response && response.data) {
-
-            // Check if there is a message in the response data
-            if (response.data.message) {
-
-                // Check if the message indicates success
-                if (response.data.message.includes('success')) {
-                    console.log('Success message:', response.data.message);
-
-                } else if (response.data.message.includes('exists')) {
-                    // Handle error if the user already exists
-                    console.log('Error message:', response.data.message);
-
+        // Check if the response object exists
+        if (response) {
+            // Handle conflict if user already exists (HTTP 409)
+            if (response.status && response.status === 409) {
+                if (response.data && response.data.message) {
+                    if (response.data.message.includes('exists')) {
+                        console.log('Error message: User already exists');
+                        return response.data.message;  // Return error message
+                    } else {
+                        console.log('Message received:', response.data.message);  // Other messages
+                    }
                 } else {
-                    // Handle any other messages
-                    console.log('Message received:', response.data.message);
+                    console.log('No message returned in the response data.');
+                }
+            } else if (response.message) {
+                // If there's a message in the response
+                if (response.message.includes('Verification')) {
+                    console.log('Success message: Account created, please verify email');
+                    return response.message;  // Return verification success message
+                } else {
+                    console.log('Message received:', response.message);  // Handle other types of messages
                 }
             } else {
                 console.log('No message returned in the response data.');
             }
         } else {
+            console.log('No valid response returned from the API.');
             throw new Error('No valid response or data returned from the API.');
         }
-
-        // Return the message or a fallback string if no message is found
-        return response.data.message || 'No message returned.';
-
     } catch (error) {
         // Log the error and throw it
-        console.error(`Register failed: ${error.message}`);
-        throw error; // Throw the error after logging it
+        console.error(`Registration failed: ${error.message}`);
+        throw error;  // Throw the error after logging it
     }
 }
+
 
 
 
@@ -337,11 +340,9 @@ async function handleOTPProcess(email, password, typeKey, apiKey) {
         await verify(typeKey, apiKey, email, otp);
 
         // Log success after OTP has been verified and login is complete
-        logger(`OTP verified and login successful`, 'success');
+        logger(`OTP verified successful`, 'success');
 
-        // Proceed with the rest of your logic (e.g., login or other actions)
-        console.log('Proceeding with further logic after login...');
-    } catch (error) {
+     } catch (error) {
         // Handle errors that occur during the OTP retrieval, login, or verification process
         console.error('Error during OTP or login process:', error.message);
         // Handle the failure (e.g., notify the user to retry manually or log the error)
@@ -386,11 +387,11 @@ async function manageMailAndRegister() {
                     // Attempt to register the user
                     const message = await register(typeKey, apiKey, name, email, password, referralCode);
                     logger(`Registration Result:: ${message}`, 'debug');  // Log the message for debugging
-                
+
                     // Check if the registration message indicates the email already exists
                     if (message.includes('exists')) {
                         console.log('Email already exists, attempting to resend email:', email);
-                        
+
                         try {
                             // Attempt to resend the verification email
                             const resend_message = await resend(email);
@@ -404,19 +405,17 @@ async function manageMailAndRegister() {
                     } else {
                         console.log('Registration successful:', message);
                     }
-                
+
                 } catch (error) {
                     // General registration error                    
                     logger(`Registration failed for ${email}: ${error.message}`, 'error');
                 }
-                
-                // Usage: Call the handleOTPProcess function with appropriate parameters
-                handleOTPProcess(email, password, typeKey, apiKey);
 
-                await saveToFile('reg_success.txt', `Email: ${email}, Password: ${password}`);
-                //await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
-                logger(`Account #${i + 1} created successfully.`, 'success');
-         
+                // Usage: Call the handleOTPProcess function with appropriate parameters
+                await handleOTPProcess(email, password, typeKey, apiKey);
+
+                await saveAccount(email, password, i);           
+
 
             } catch (error) {
                 logger(`Error with account #${i + 1}: ${error.message}`, 'error');
@@ -428,5 +427,24 @@ async function manageMailAndRegister() {
         rl.close();
     }
 }
+
+
+
+async function saveAccount(email, password, i) {
+    try {
+        // Append account to reg_success.txt
+        await fs_account.appendFile(
+            'reg_success.txt',
+            `${email}|${password}\n`,
+            'utf-8'
+        );
+        logger(`Account ${email}saved to reg_success.txt`, "success");
+        logger(`Account #${i + 1} created successfully.`, 'success');
+    } catch (err) {
+        logger('Failed to save data to reg_success.txt:', "error", err.message);
+    }
+}
+
+
 
 manageMailAndRegister();
