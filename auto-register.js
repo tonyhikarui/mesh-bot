@@ -2,7 +2,7 @@ import "./addRequire.js";
 import { readToken, delay } from "./utils/file.js";
 import { coday, start } from './scripts.js';
 import readline from 'readline/promises';
-import fs from 'fs/promises';
+import fs from 'fs';
 import crypto from 'crypto';
 import { logger } from './logger.js';
 import { banner } from './banner.js';
@@ -16,7 +16,16 @@ var Promise = require("bluebird");
 Promise.longStackTraces();
 const util = require('util');
 //const simpleParser = require('mailparser');
-
+const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'origin': 'https://app.meshchain.ai',
+    'referer': 'https://app.meshchain.ai/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36' // Optional, if required by API
+};
+const getAPI = () => {
+    return fs.readFileSync('apikey.txt', 'utf8').split('\n').map(line => line.trim()).filter(Boolean);
+};
 function inspect(obj) {
     return util.inspect(obj);
 }
@@ -27,10 +36,7 @@ var imapConfig = {
     port: 993,
     tls: true
 };
-//const imap = new Imap(imapConfig);
-function openInbox(cb) {
-    imap.openBox('INBOX', false, cb);
-}
+
 
 async function processMessage(msg) {
     return new Promise((resolve, reject) => {
@@ -53,12 +59,6 @@ async function processMessage(msg) {
 }
 
 
-const headers = { 'Content-Type': 'application/json' };
-
-// Helper: Generate a 16-byte hexadecimal string
-function generateHex() {
-    return crypto.randomBytes(16).toString('hex');
-}
 
 // Helper: Save data to a file
 async function saveToFile(filename, data) {
@@ -84,90 +84,82 @@ async function resend(email) {
             email: email
         };
         const response = await coday('https://api.meshchain.ai/meshmain/auth/resend-email', 'POST', headers, payload);
-        if (!response || response.error) throw new Error(response.error || 'Unknown registration error.');
+        console.log('resend mail for server Response :', response);
+
+        // Check for errors in the response
+        if (!response || response.error) {
+            throw new Error(response.error || 'Resend verification code error.');
+        }
+
+        // Return the message or a fallback string if no message is found
         return response.message || 'No message returned.';
     } catch (error) {
-        logger(`Register failed: ${error.message}`, 'error');
+        // Log the error message from the caught error
+        console.error(`Resend failed: ${error.message}`);
+        // Log using your custom logger function
         throw error;
     }
 }
 
 
+
 async function register(typeKey, apiKey, name, email, password, referralCode) {
     try {
         // Construct the payload with captcha token and user details
-        const payload = {
-            captcha_token: await captchaSolver(typeKey, apiKey),
+        const payloadReg = {
+            captcha_token: await solveAntiCaptcha(apiKey),
             full_name: name,
             email: email,
             password: password,
             referral_code: referralCode
         };
 
-        // Send the registration request
-        const response = await coday('https://api.meshchain.ai/meshmain/auth/email-signup', 'POST', headers, payload);
+        // Send the POST request to the API
+        const response = await coday(
+            'https://api.meshchain.ai/meshmain/auth/email-signup',
+            'POST',
+            headers,
+            payloadReg
+        );
+        //console.log('Response object:', response);
 
-        // Check for errors in the response
-        if (!response || response.error) {
-            throw new Error(response.error || 'Unknown registration error.');
-        }
+        // Check if the response object exists and contains data
+        if (response && response.data) {
 
-        // If a message is returned in the response, check its type
-        if (response.message) {
-            // If it's a string, check for specific keywords
-            if (typeof response.message === 'string') {
-                if (response.message.includes('success')) {
-                    console.log('Success message:', response.message);
-                } else if (response.message.includes('exists')) {
-                    console.log('Error message:', response.message);
+            // Check if there is a message in the response data
+            if (response.data.message) {
+
+                // Check if the message indicates success
+                if (response.data.message.includes('success')) {
+                    console.log('Success message:', response.data.message);
+
+                } else if (response.data.message.includes('exists')) {
+                    // Handle error if the user already exists
+                    console.log('Error message:', response.data.message);
+
                 } else {
-                    console.log('Message received:', response.message);
+                    // Handle any other messages
+                    console.log('Message received:', response.data.message);
                 }
-            }
-            // If it's an object, inspect its contents
-            else if (typeof response.message === 'object') {
-                // Example: Check if the object has a 'status' or 'error' field
-                if (response.message.status === 'success') {
-                    console.log('Success:', response.message);
-                } else if (response.message.errorCode) {
-                    console.log('Error code:', response.message.errorCode);
-                } else {
-                    console.log('Object message:', response.message);
-                }
+            } else {
+                console.log('No message returned in the response data.');
             }
         } else {
-            console.log('No message returned.');
+            throw new Error('No valid response or data returned from the API.');
         }
 
         // Return the message or a fallback string if no message is found
-        return response.message || 'No message returned.';
+        return response.data.message || 'No message returned.';
+
     } catch (error) {
         // Log the error and throw it
-        logger(`Register failed: ${error.message}`, 'error');
-        throw error;
+        console.error(`Register failed: ${error.message}`);
+        throw error; // Throw the error after logging it
     }
 }
 
 
-// Login Function
-async function login(typeKey, apiKey, email, password) {
-    try {
-        const payload = {
-            captcha_token: await captchaSolver(typeKey, apiKey),
-            email,
-            password,
-        };
-        const response = await coday('https://api.meshchain.ai/meshmain/auth/email-signin', 'POST', headers, payload);
-        if (response.access_token) {
-            logger('Login successful!', 'success');
-            return response;
-        }
-        throw new Error('Login failed. Check your credentials.');
-    } catch (error) {
-        logger(`Login error: ${error.message}`, 'error');
-        throw error;
-    }
-}
+
 
 // Verify Email Function
 async function verify(typeKey, apiKey, email, otp) {
@@ -178,6 +170,7 @@ async function verify(typeKey, apiKey, email, otp) {
             code: otp,
         };
         const response = await coday('https://api.meshchain.ai/meshmain/auth/verify-email', 'POST', headers, payload);
+        console.log('Verify mail by server Response :', response);
         if (!response || response.error) throw new Error(response.error || 'Verification failed.');
         return response.message || 'Verification succeeded.';
     } catch (error) {
@@ -186,101 +179,6 @@ async function verify(typeKey, apiKey, email, otp) {
     }
 }
 
-// Claim BNB Reward
-async function claimBnb(headers) {
-    try {
-        const payload = { mission_id: 'EMAIL_VERIFICATION' };
-        const response = await coday('https://api.meshchain.ai/meshmain/mission/claim', 'POST', headers, payload);
-        logger(`Claim response: ${JSON.stringify(response)}`, 'debug');
-        return response.status;
-    } catch (error) {
-        logger(`Claim error: ${error.message}`, 'error');
-        throw error;
-    }
-}
-
-// Link Node Function
-async function initNode(randomHex, headers) {
-    try {
-        const payload = { unique_id: randomHex, node_type: 'browser', name: 'Extension' };
-        const response = await coday('https://api.meshchain.ai/meshmain/nodes/link', 'POST', headers, payload);
-        if (!response.id) throw new Error('Failed to link node.');
-        await saveToFile('unique_id.txt', response.unique_id);
-        return response;
-    } catch (error) {
-        logger(`Node initialization error: ${error.message}`, 'error');
-        throw error;
-    }
-}
-
-/*
-//jeff addd
-function waitForOTP(email, password) {
-    imapConfig = {
-        user: email,
-        password: password,
-        host: 'imap.mail.yahoo.com',
-        port: 993,
-        tls: true
-    };
-    imap = new Imap(imapConfig);
-    Promise.promisifyAll(imap);
-
-        imap.once('ready', function () {
-            console.log('open inbox');
-            openInbox(function (err, box) {                
-                if(err) throw err;
-                console.log('search email content');
-                imap.search(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']], function (err, results) {
-                    if (err) {
-                        console.error('Error searching emails: ' + err);
-                        imap.end();
-                        return;
-                    }
-                    if (results.length === 0) {
-                        console.log('No unseen emails found');
-                        imap.end();
-                        return;
-
-                    } else {
-                        console.log('Found ' + results.length);
-                        // Fetch emails...
-
-                        const f = imap.fetch(results, { bodies: '', markSeen: false });
-                        //      var f = imap.seq.fetch(box.messages.total + ':*', { bodies: ['HEADER.FIELDS (FROM)','TEXT'] });
-                        f.on('message', function (msg, seqno) {
-                            //console.log('Message #%d', seqno);
-
-                            var prefix = '(#' + seqno + ') ';
-                            msg.on('body', function (stream, info) {
-                                processMessage(stream).then((numbers) => {
-                                    console.log('Numbers extracted:', numbers);
-                                    var otp = numbers;
-                                    return otp;
-                                  }).catch((error) => {
-                                    console.error('Failed to process message:', error);
-                                  });
-                                
-
-                            });
-
-                            f.once('error', function (err) {
-                                console.log('Fetch error: ' + err);
-                            });
-                            f.once('end', function () {
-                                console.log('Done fetching all messages!');
-                                imap.end();
-                            });
-                        });
-                    }    
-                });
-            });
-        });
-
-    imap.connect();
-}
-
-*/
 
 async function waitForOTP(email, password) {
     const imapConfig = {
@@ -300,66 +198,82 @@ async function waitForOTP(email, password) {
 
     return new Promise((resolve, reject) => {
         /*
-        imap.once('ready', function() {
-            imap.getBoxes((err, boxes) => {
-                if (err) {
-                    console.error('Error getting boxes:', err);
-                    return;
-                }
-                console.log('IMAP Folders:', boxes);
-                // You should see the folder names here, including 'Spam' or 'INBOX.Spam'
-                imap.end();
-            });
-        });
+                imap.once('ready', function() {
+                    imap.getBoxes((err, boxes) => {
+                        if (err) {
+                            console.error('Error getting boxes:', err);
+                            return;
+                        }
+                        console.log('IMAP Folders:', boxes);
+                        // You should see the folder names here, including 'Spam' or 'INBOX.Spam'
+                        imap.end();
+                    });
+                });
         */
-
-
         imap.once('ready', async () => {
             try {
-                // Open INBOX folder
                 console.log('Opening INBOX...');
                 const boxInInbox = await openInboxAsync('INBOX', false);
 
                 console.log('Searching for emails in INBOX...');
-                const resultsInInbox = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
+                let resultsInInbox = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
 
-                // Open Bulk folder
-                console.log('Opening Bulk folder...');
-                const boxInBulk = await openInboxAsync('Bulk', false);
+                // If no emails found in INBOX, search in Bulk (Junk) folder
+                if (resultsInInbox.length === 0) {
+                    //console.log('No unseen emails found in INBOX. Searching in Bulk (Junk) folder...');
+                    const boxInBulk = await openInboxAsync('Bulk', false);  // Open Bulk folder
+                    resultsInInbox = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
+                }
 
-                console.log('Searching for emails in Bulk...');
-                const resultsInBulk = await searchAsync(['UNSEEN', ['SUBJECT', 'MeshChain Account Verification']]);
-
-                // Combine the results from both folders
-                const allResults = [...resultsInInbox, ...resultsInBulk];
-
-                if (allResults.length === 0) {
-                    console.log('No unseen emails found in INBOX or Bulk folder');
+                // If still no emails found, reject the promise
+                if (resultsInInbox.length === 0) {
+                    console.log('No OTP email found in either INBOX or Bulk folder');
                     imap.end();
-                    return Promise.reject(new Error('No OTP email found'));
+                    return reject(new Error('No OTP email found'));
                 }
 
-                console.log(`Found ${allResults.length} unseen emails in INBOX or Bulk folder`);
+                console.log(`Found ${resultsInInbox.length} unseen emails in INBOX or Bulk folder`);
 
-                // Fetch emails from both folders in parallel using Promise.all
-                const [otpFromInbox, otpFromBulk] = await Promise.all([
-                    fetchEmailsFromFolder(imap, resultsInInbox),
-                    fetchEmailsFromFolder(imap, resultsInBulk)
-                ]);
-        
-                // You can choose to return or process either OTP or both
-                if (otpFromInbox) {
-                    console.log('OTP from Inbox:', otpFromInbox);
-                }
-        
-                if (otpFromBulk) {
-                    console.log('OTP from Bulk:', otpFromBulk);
-                }
+                // Now, fetch the email messages
+                const fetch = imap.fetch(resultsInInbox, { bodies: '', markSeen: false });
 
-            } catch (error) {
-                console.error('Error fetching emails:', error);
+                fetch.on('message', (msg, seqno) => {
+                    console.log(`Fetching message #${seqno}`);
+
+                    msg.on('body', async (stream) => {
+                        try {
+                            // Process the email body stream to extract OTP
+                            const otp = await processMessage(stream);  // Assuming processMessage returns OTP
+                            console.log('OTP extracted:', otp);
+
+                            imap.end();
+                            resolve(otp);  // Return the OTP once it's extracted
+                        } catch (err) {
+                            console.error('Error processing message:', err);
+                            imap.end();
+                            reject(err);  // Reject in case of any processing error
+                        }
+                    });
+
+                    msg.once('end', () => {
+                        console.log(`Finished processing message #${seqno}`);
+                    });
+                });
+
+                fetch.once('error', (err) => {
+                    console.error('Fetch error:', err);
+                    imap.end();
+                    reject(err);
+                });
+
+                fetch.once('end', () => {
+                    console.log('Done fetching messages!');
+                });
+
+            } catch (err) {
+                console.error('Error during IMAP operations:', err);
                 imap.end();
-                return Promise.reject(error);
+                reject(err);
             }
         });
 
@@ -374,75 +288,7 @@ async function waitForOTP(email, password) {
 }
 
 
-async function fetchEmailsFromFolder(imap, results, timeout = 10000) {
-    if (results.length === 0) {
-        console.log('No emails to fetch.');
-        return null; // Return null if no emails
-    }
-
-    return new Promise((resolve, reject) => {
-        console.log(`Starting to fetch ${results.length} email(s) from folder`);
-
-        const fetch = imap.fetch(results, { bodies: '', markSeen: true });
-
-        let timeoutId = setTimeout(() => {
-            console.log('Fetch timed out');
-            fetch.abort(); // Abort fetch operation after the timeout
-            reject(new Error('Message fetch timed out'));
-        }, timeout);
-
-        fetch.on('message', (msg, seqno) => {
-            console.log(`Fetching message #${seqno}`);
-
-            let emailBody = '';
-
-            msg.on('body', (stream) => {
-                console.log(`Streaming body of message #${seqno}`);
-
-                stream.on('data', (chunk) => {
-                    console.log(`Received chunk for message #${seqno}: ${chunk.toString().slice(0, 100)}...`); // Log first 100 chars of chunk
-                    emailBody += chunk.toString(); // Collect body data
-                });
-
-                stream.on('end', async () => {
-                    console.log(`Finished streaming body of message #${seqno}`);
-                    try {
-                        console.log(`Processing email body for OTP extraction: ${emailBody.slice(0, 100)}...`); // Log first 100 chars of email body
-                        const otp = await processMessage(emailBody); // Process OTP from email body
-                        console.log('OTP extracted:', otp);
-                        clearTimeout(timeoutId); // Clear timeout on successful resolution
-                        resolve(otp); // Resolve with OTP if found
-                    } catch (err) {
-                        console.error(`Error processing message #${seqno}:`, err);
-                        clearTimeout(timeoutId); // Clear timeout if processing fails
-                        reject(err);  // Reject the promise if error in processing
-                    }
-                });
-            });
-
-            msg.once('end', () => {
-                console.log(`Finished processing message #${seqno}`);
-            });
-        });
-
-        
-        fetch.once('error', (err) => {
-            console.error('Fetch error:', err);
-            clearTimeout(timeoutId); // Clear timeout on fetch error
-            reject(err);  // Reject if fetch fails
-        });
-
-        fetch.once('end', () => {
-            console.log('Done fetching messages!');
-            clearTimeout(timeoutId); // Clear timeout on fetch end
-        });
-    });
-}
-
-
-
-
-async function waitForOTPWithRetry(email, password, maxRetries = 3, delay = 5000) {
+async function waitForOTPWithRetry(email, password, maxRetries = 10, delay = 5000) {
     let attempt = 0;
 
     while (attempt < maxRetries) {
@@ -483,21 +329,8 @@ async function handleOTPProcess(email, password, typeKey, apiKey) {
         const otp = await waitForOTPWithRetry(email, password);
 
         // Log OTP retrieval success
-        console.log('OTP successfully retrieved:', otp);
         logger(`OTP retrieved: ${otp}`, 'success');
 
-        // Await the login data so that it resolves before proceeding
-        const loginData = await login(typeKey, apiKey, email, password);
-
-        // Ensure login data has access token
-        if (!loginData || !loginData.access_token) {
-            throw new Error('Login failed, no access token returned');
-        }
-
-        // Use the login data to set authorization headers
-        const accountHeaders = { ...headers, Authorization: `Bearer ${loginData.access_token}` };
-
-        // Log the start of OTP verification
         logger(`Verifying`, 'debug');
 
         // Await the verify call to ensure OTP verification completes before moving forward
@@ -519,11 +352,11 @@ async function handleOTPProcess(email, password, typeKey, apiKey) {
 // Main Function: Manage Mail and Registration
 async function manageMailAndRegister() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
+    const anti_apiKey = getAPI();
     try {
-        logger(banner, 'debug');
+        //logger(banner, 'debug');
         const typeKey = "2";//await rl.question('Choose Captcha API (1: 2Captcha, 2: Anti-Captcha): ');
-        const apiKey = "2d49fc8ce88d95b9c2854380c8897405";//await rl.question('Enter Captcha API Key: ');
+        const apiKey = anti_apiKey[0];//await rl.question('Enter Captcha API Key: ');
         if (!apiKey) throw new Error('Invalid API key.');
 
 
@@ -550,27 +383,40 @@ async function manageMailAndRegister() {
                 logger(`Creating account #${i + 1} - Email: ${email}`, 'debug');
 
                 try {
-                    //const message = await register(typeKey, apiKey, name, email, password, referralCode);
-                    logger(`Registration Result:: ${message}`, 'debug');
+                    // Attempt to register the user
+                    const message = await register(typeKey, apiKey, name, email, password, referralCode);
+                    logger(`Registration Result:: ${message}`, 'debug');  // Log the message for debugging
+                
+                    // Check if the registration message indicates the email already exists
+                    if (message.includes('exists')) {
+                        console.log('Email already exists, attempting to resend email:', email);
+                        
+                        try {
+                            // Attempt to resend the verification email
+                            const resend_message = await resend(email);
+                            console.log('Resend message:', resend_message);
+
+                        } catch (error) {
+                            // Handle resend-specific errors
+                            console.error('Resend failed:', error.message);
+                            logger(`Resend failed for email ${email}: ${error.message}`, 'error');
+                        }
+                    } else {
+                        console.log('Registration successful:', message);
+                    }
+                
                 } catch (error) {
-                    console.error('Registration failed:', error.message);
+                    // General registration error                    
+                    logger(`Registration failed for ${email}: ${error.message}`, 'error');
                 }
-
-
+                
                 // Usage: Call the handleOTPProcess function with appropriate parameters
                 handleOTPProcess(email, password, typeKey, apiKey);
 
-
-                //await claimBnb(accountHeaders);
-                /*    
-                const randomHex = generateHex();
-                logger(`Initializing node with ID: ${randomHex}`, 'info');
-                await initNode(randomHex, accountHeaders);
-
-                //await saveToFile('accounts.txt', `Email: ${email}, Password: ${password}`);
-                await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
+                await saveToFile('reg_success.txt', `Email: ${email}, Password: ${password}`);
+                //await saveToFile('token.txt', `${loginData.access_token}|${loginData.refresh_token}`);
                 logger(`Account #${i + 1} created successfully.`, 'success');
-                */
+         
 
             } catch (error) {
                 logger(`Error with account #${i + 1}: ${error.message}`, 'error');
