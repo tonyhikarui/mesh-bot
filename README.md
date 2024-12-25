@@ -38,7 +38,13 @@ This repository contains scripts for automating tasks such as user registration,
 - this file while auto generate if you register using script
 - if you already have account you can create file manually
 - `token.txt`: Stores tokens in the format `access_token|refresh_token` each line 1 account.
+- got to [https://app.meshchain.ai/](https://app.meshchain.ai?ref=IOVO3G77Q0QQ) and inspect to get  `access_token|refresh_token`
+- ![image](https://github.com/user-attachments/assets/9c1571ef-f80e-4b62-9b59-a21c793bf69d)
+
 - `unique_id.txt`: Stores unique IDs for linked nodes each line 1 account.
+- inspect mesh extension to get id
+- ![image](https://github.com/user-attachments/assets/f715a727-8a1b-430c-b976-2b4f2d2c2bbd)
+
 
 ## Usage
 
