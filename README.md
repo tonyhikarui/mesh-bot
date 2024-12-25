@@ -8,8 +8,9 @@ MeshChain is a decentralized network designed to provide affordable, scalable co
 
 # MeshChain Automation Script
 
-## Update
-
+## New update
+- Added support proxy usage (optional): put your proxies in `proxy.txt`
+- Added Feature Auto Spins
 - Solve captcha using anti-captcha [https://anti-captcha.com/](https://anti-captcha.com/)
 
 This repository contains scripts for automating tasks such as user registration, email verification, claiming rewards, and starting mining on MeshChain.
