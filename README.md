@@ -9,6 +9,9 @@ MeshChain is a decentralized network designed to provide affordable, scalable co
 # MeshChain Automation Script
 
 ## New update
+- Get new tokens for account in `accounts.txt` file, run: `node getToken`
+- New token is saved in `newTokens.txt` file
+
 - Need to reinstall dependencies after `git pull`: `npm install`
 - Added support proxy usage (optional): put your proxies in `proxy.txt`
 - Added Feature Auto Spins
