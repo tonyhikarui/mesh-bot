@@ -9,6 +9,7 @@ MeshChain is a decentralized network designed to provide affordable, scalable co
 # MeshChain Automation Script
 
 ## New update
+- Need to reinstall dependencies after `git pull`: `npm install`
 - Added support proxy usage (optional): put your proxies in `proxy.txt`
 - Added Feature Auto Spins
 - Solve captcha using anti-captcha [https://anti-captcha.com/](https://anti-captcha.com/)
