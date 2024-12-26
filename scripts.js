@@ -72,6 +72,7 @@ async function doSpin(headers, proxy) {
 
     return result || null;
 }
+
 async function init(headers, unique_id, proxy) {
     const url = "https://api.meshchain.ai/meshmain/nodes/link";
     const payload = { unique_id, "node_type": "browser", "name": "Extension" };
