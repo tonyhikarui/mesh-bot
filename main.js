@@ -40,7 +40,10 @@ async function readTokensAndIds() {
 
         const accounts = tokens.map((line, index) => {
             const [access_token, refresh_token] = line.split('|').map(token => token.trim());
-            const ids = uniqueIds[index].split('|').map(id => id.trim());
+            const ids = uniqueIds[index].includes('|')
+                ? uniqueIds[index].split('|').map(id => id.trim())
+                : [uniqueIds[index].trim()];
+
             return { access_token, refresh_token, unique_ids: ids, proxy: proxies ? proxies[index % proxies.length] : null };
         });
 
