@@ -41,7 +41,7 @@ async function estimate(id, headers, proxy) {
 async function claim(id, headers, proxy) {
     const url = 'https://api.meshchain.ai/meshmain/rewards/claim';
     const result = await coday(url, 'POST', headers, { unique_id: id }, proxy);
-
+    console.log(result);
     return result.total_reward || null;
 }
 
@@ -72,5 +72,12 @@ async function doSpin(headers, proxy) {
 
     return result || null;
 }
+async function init(headers, unique_id, proxy) {
+    const url = "https://api.meshchain.ai/meshmain/nodes/link";
+    const payload = { unique_id, "node_type": "browser", "name": "Extension" };
 
-export { coday, estimate, claim, start, info, infoSpin, doSpin };
+    const response = await coday(url, 'POST', headers, payload, proxy);
+    return response || null;
+}
+
+export { coday, estimate, claim, start, info, infoSpin, doSpin, init };

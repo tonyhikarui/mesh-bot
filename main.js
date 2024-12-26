@@ -1,4 +1,4 @@
-import { coday, estimate, claim, start, info, infoSpin, doSpin } from './scripts.js';
+import { coday, estimate, claim, start, info, infoSpin, doSpin, init } from './scripts.js';
 import { logger } from './logger.js';
 import fs from 'fs/promises';
 import { banner } from './banner.js';
@@ -117,70 +117,135 @@ async function processAccount({ access_token, refresh_token, unique_ids, proxy }
     };
 
     for (const unique_id of unique_ids) {
-        const profile = await info(unique_id, headers, proxy);
+        try {
+            const profile = await info(unique_id, headers, proxy);
+            if (profile && profile.error) {
+                const { status, data } = profile;
 
-        if (profile.status === 401) {
-            logger(`Account ${accountIndex + 1} | ${unique_id}: Unauthorized, attempting to refresh token...`, "warn");
-            const newAccessToken = await refreshToken(refresh_token, accountIndex);
-            if (!newAccessToken) return;
-            headers.Authorization = `Bearer ${newAccessToken}`;
-        } else if (profile.status >= 400) {
-            logger(`Account ${accountIndex + 1} | ${unique_id}: Profile fetch failed with status ${profile.status}`, "error");
-            logger(`Account ${accountIndex + 1} | ${unique_id}: ${profile.data.message}`, "error");
-        } else {
-            const { name, total_reward } = profile;
-            logger(`Account ${accountIndex + 1} | ${unique_id}: ${name} | Balance: ${total_reward}`, "success");
+                if (status === 401) {
+                    const message = data?.message || 'Unknown error';
+                    logger(`Account ${accountIndex + 1} | ${unique_id}: Unauthorized (Error Code: ${data?.code}), ${message}`, "warn");
+
+                    if (data.code === '40100002') {
+                        logger(`Account ${accountIndex + 1} | ${unique_id}: JWT token expired, attempting to refresh...`, "warn");
+                        const newAccessToken = await refreshToken(refresh_token, accountIndex);
+                        if (!newAccessToken) return;
+                        headers.Authorization = `Bearer ${newAccessToken}`;
+                        return;
+                    }
+                } else {
+                    logger(`Account ${accountIndex + 1} | ${unique_id}: Error fetching profile (Code: ${data?.code}), ${data?.message}`, "error");
+                }
+            }
+
+            else if (profile) {
+                const is_linked = profile.is_linked || false;
+
+                if (!is_linked) {
+                    logger(`Account ${accountIndex + 1} | ${unique_id}: Node not linked, attempting to link node...`, "warn");
+                    try {
+                        await init(headers, unique_id, proxy);
+                        logger(`Account ${accountIndex + 1} | ${unique_id}: Node linked successfully.`, "success");
+                    } catch (err) {
+                        logger(`Account ${accountIndex + 1} | ${unique_id}: Failed to link node: ${err.message}`, "error");
+                    }
+                }
+
+                const { name, total_reward } = profile;
+                logger(`Account ${accountIndex + 1} | ${unique_id}: ${name} | Balance: ${total_reward}`, "success");
+            } else {
+                logger(`Account ${accountIndex + 1} | ${unique_id}: Profile data is invalid or missing.`, "error");
+            }
+        } catch (err) {
+            logger(`Account ${accountIndex + 1} | ${unique_id}: Error fetching profile: ${err.message}`, "error");
         }
 
         const filled = await estimate(unique_id, headers, proxy);
         if (!filled) {
             logger(`Account ${accountIndex + 1} | ${unique_id}: Failed to fetch estimate.`, "error");
             continue;
+        } else if (filled.error) {
+            const errorMessage = filled.data ? filled.data.message : 'Unknown error';
+            logger(`Account ${accountIndex + 1} | ${unique_id}: ${errorMessage}`, "error");
+
+            if (filled.data && filled.data.status === 400) {
+                logger(`Account ${accountIndex + 1} | ${unique_id}: Trying to restart mining again due to status 400.`, "info");
+                await start(unique_id, headers);
+            } else if (filled.data && filled.data.status === 401) {
+                logger(`Account ${accountIndex + 1} | ${unique_id}: Unauthorized. Attempting to refresh token...`, "warn");
+                const newAccessToken = await refreshToken(refresh_token, accountIndex);
+                if (!newAccessToken) return;
+                headers.Authorization = `Bearer ${newAccessToken}`;
+                return;
+            }
         }
 
         if (filled.filled && filled.claimable) {
-            logger(`Account ${accountIndex + 1} | ${unique_id}: Attempting to claim reward...`);
+            logger(`Account ${accountIndex + 1} | ${unique_id}: Attempting to claim reward...`, "info");
             const reward = await claim(unique_id, headers, proxy);
             if (reward) {
                 logger(`Account ${accountIndex + 1} | ${unique_id}: Claim successful! New Balance: ${reward}`, "success");
                 await start(unique_id, headers);
                 logger(`Account ${accountIndex + 1} | ${unique_id}: Started mining again.`, "info");
             } else {
-                logger(`Account ${accountIndex + 1} | ${unique_id}: Failed to claim reward, make sure your bnb balance is enough`, "error");
+                logger(`Account ${accountIndex + 1} | ${unique_id}: Failed to claim reward. Ensure your BNB balance is enough.`, "error");
             }
         } else {
-            logger(`Account ${accountIndex + 1} | ${unique_id}: Mine already started. Mine value: ${filled.value}`, "info");
+            logger(`Account ${accountIndex + 1} | ${unique_id}: Mining already started. Mine value: ${filled.value}`, "info");
         }
     }
-    await spins(headers, proxy)
+
 };
 
-async function spins(headers, proxy) {
-    logger('Checking Current Round Spins Informations...')
-    const spinsData = await infoSpin(headers, proxy);
-    if (spinsData) {
-        const timeNow = Math.floor(Date.now() / 1000);
-        const { spinStartTime, spinEndTime, maxSpinPerUser, userCurrentSpin } = spinsData;
-        const timesNow = {
-            timeNow: new Date(timeNow * 1000).toLocaleString(),
-            spinEndTime: new Date(spinEndTime * 1000).toLocaleString(),
-            spinStartTime: new Date(spinStartTime * 1000).toLocaleString(),
+async function spins() {
+    logger('Checking Current Round Spins Information...');
+    const accounts = await readTokensAndIds();
+
+    if (accounts.length === 0) {
+        logger("No accounts to process.", "error");
+        return;
+    }
+
+    logger(`Processing Checking ${accounts.length} accounts...`, "info");
+
+    for (let index = 0; index < accounts.length; index++) {
+        const account = accounts[index];
+
+        headers = {
+            ...headers,
+            Authorization: `Bearer ${account.access_token}`,
         };
 
-        if (timeNow > spinStartTime && timeNow < spinEndTime && userCurrentSpin < maxSpinPerUser) {
-            logger(`Let's do Spinning with current account ${accountIndex + 1}`);
-            const spinResult = await doSpin(headers, proxy);
-            console.log(`Spins result:`, spinResult);
-        } else {
-            logger(`The current round has already ended, or you have reached the maximum allowed spins.`, 'warn');
-            logger(`Current time: ${timesNow.timeNow} | Next Round Spin Time: ${timesNow.spinStartTime}`, 'warn');
+        try {
+            const spinsData = await infoSpin(headers, account.proxy);
+            if (spinsData) {
+                const timeNow = Math.floor(Date.now() / 1000);
+                const { spinStartTime, spinEndTime, maxSpinPerUser, userCurrentSpin } = spinsData;
+                const timesNow = {
+                    timeNow: new Date(timeNow * 1000).toLocaleString(),
+                    spinEndTime: new Date(spinEndTime * 1000).toLocaleString(),
+                    spinStartTime: new Date(spinStartTime * 1000).toLocaleString(),
+                };
+
+                if (timeNow > spinStartTime && timeNow < spinEndTime && userCurrentSpin < maxSpinPerUser) {
+                    logger(`Account ${index + 1}: Let's do Spinning...`);
+                    const spinResult = await doSpin(headers, account.proxy);
+                    console.log(`Spins result for Account ${index + 1}:`, spinResult);
+                } else {
+                    logger(`Account ${index + 1}: The current round has already ended, or you have reached the maximum allowed spins.`, 'warn');
+                    logger(`Current time: ${timesNow.timeNow} | Next Round Spin Time: ${timesNow.spinStartTime}`, 'warn');
+                }
+            }
+            logger(`Account ${index + 1} Check completed successfully, proxy: ${account.proxy}`, "info");
+        } catch (error) {
+            logger(`Error processing account ${index + 1}: ${error.message}`, "error");
         }
     }
 }
 
-// Main function
 async function main() {
     logger(banner, "debug");
+    setInterval(spins, 15 * 60 * 1000); // 15 minutes interval for spins
 
     while (true) {
         const accounts = await readTokensAndIds();
@@ -192,20 +257,18 @@ async function main() {
 
         logger(`Processing ${accounts.length} accounts...`, "info");
 
-        await Promise.all(
-            accounts.map((account, index) =>
-                processAccount(account, index)
-                    .then(() => {
-                        logger(`Account ${index + 1} processed successfully, proxy: ${account.proxy}`, "info");
-                    })
-                    .catch(error => {
-                        logger(`Error processing account ${index + 1}: ${error.message}`, "error");
-                    })
-            )
-        );
+        for (let index = 0; index < accounts.length; index++) {
+            const account = accounts[index];
+            try {
+                await processAccount(account, index);
+                logger(`Account ${index + 1} processed successfully, proxy: ${account.proxy}`, "info");
+            } catch (error) {
+                logger(`Error processing account ${index + 1}: ${error.message}`, "error");
+            }
+        }
 
-        logger("All accounts processed. Waiting 15 minutes for the next run.", "info");
-        await new Promise(resolve => setTimeout(resolve, 905 * 1000));
+        logger("All accounts processed. Waiting 10 minute for the next run.", "info");
+        await new Promise(resolve => setTimeout(resolve, 10 * 60 * 1000)); // 10 minutes interval
     }
 }
 
@@ -214,5 +277,6 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 
-// Run Main
+// Start
 main();
+
