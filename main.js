@@ -51,9 +51,8 @@ async function readTokensAndIds() {
     }
 }
 
-// Refresh Token Function
 const asyncLock = {};
-let tokenLock = false;
+const tokenLocks = new Set();
 
 async function lockAndWrite(file, content) {
     while (asyncLock[file]) {
@@ -69,10 +68,15 @@ async function lockAndWrite(file, content) {
 }
 
 async function refreshToken(refresh_token, accountIndex) {
-    while (tokenLock) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+    if (tokenLocks.has(accountIndex)) {
+        logger(`Account ${accountIndex + 1} is already refreshing. Waiting...`, "info");
+        while (tokenLocks.has(accountIndex)) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return null;
     }
-    tokenLock = true;
+
+    tokenLocks.add(accountIndex);
 
     try {
         logger(`Refreshing access token for Account ${accountIndex + 1}...`, "info");
@@ -80,12 +84,17 @@ async function refreshToken(refresh_token, accountIndex) {
         const response = await coday("https://api.meshchain.ai/meshmain/auth/refresh-token", 'POST', headers, payloadData);
 
         if (response && response.access_token) {
-            const tokenLines = (await fs.readFile('token.txt', 'utf-8')).split('\n');
+            const tokenLines = (await fs.readFile('token.txt', 'utf-8'))
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean);
+
             tokenLines[accountIndex] = `${response.access_token}|${response.refresh_token}`.trim();
-            await lockAndWrite('token.txt', tokenLines.join('\n').trim() + '\n', 'utf-8');
+            await lockAndWrite('token.txt', tokenLines.join('\n') + '\n');
             logger(`Account ${accountIndex + 1} token refreshed successfully`, "success");
             return response.access_token;
         }
+
         logger(`Account ${accountIndex + 1} failed to refresh token`, "error");
         console.log(response);
         return null;
@@ -93,7 +102,7 @@ async function refreshToken(refresh_token, accountIndex) {
         logger(`Error refreshing token for Account ${accountIndex + 1}: ${err.message}`, "error");
         return null;
     } finally {
-        tokenLock = false;
+        tokenLocks.delete(accountIndex);
     }
 }
 
