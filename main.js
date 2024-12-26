@@ -10,10 +10,16 @@ let headers = {
 async function readTokensAndIds() {
     try {
         const tokenData = await fs.readFile('token.txt', 'utf-8');
-        const tokens = tokenData.split('\n').filter(line => line.trim());
+        const tokens = tokenData
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line && line.includes('|'));
 
         const idsData = await fs.readFile('unique_id.txt', 'utf-8');
-        const uniqueIds = idsData.split('\n').filter(line => line.trim());
+        const uniqueIds = idsData
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line);
 
         let proxies = [];
         try {
@@ -46,21 +52,49 @@ async function readTokensAndIds() {
 }
 
 // Refresh Token Function
-async function refreshToken(refresh_token, accountIndex) {
-    logger(`Refreshing access token for Account ${accountIndex + 1}...`, "info");
-    const payloadData = { refresh_token };
-    const response = await coday("https://api.meshchain.ai/meshmain/auth/refresh-token", 'POST', headers, payloadData);
+const asyncLock = {};
+let tokenLock = false;
 
-    if (response && response.access_token) {
-        const tokenLines = (await fs.readFile('token.txt', 'utf-8')).split('\n');
-        tokenLines[accountIndex] = `${response.access_token}|${response.refresh_token}`;
-        await fs.writeFile('token.txt', tokenLines.join('\n'), 'utf-8');
-        logger(`Account ${accountIndex + 1} token refreshed successfully`, "success");
-        return response.access_token;
+async function lockAndWrite(file, content) {
+    while (asyncLock[file]) {
+        await new Promise(resolve => setTimeout(resolve, 50));
     }
-    logger(`Account ${accountIndex + 1} failed to refresh token`, "error");
-    console.log(response)
-    return null;
+    asyncLock[file] = true;
+
+    try {
+        await fs.writeFile(file, content, 'utf-8');
+    } finally {
+        asyncLock[file] = false;
+    }
+}
+
+async function refreshToken(refresh_token, accountIndex) {
+    while (tokenLock) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    tokenLock = true;
+
+    try {
+        logger(`Refreshing access token for Account ${accountIndex + 1}...`, "info");
+        const payloadData = { refresh_token };
+        const response = await coday("https://api.meshchain.ai/meshmain/auth/refresh-token", 'POST', headers, payloadData);
+
+        if (response && response.access_token) {
+            const tokenLines = (await fs.readFile('token.txt', 'utf-8')).split('\n');
+            tokenLines[accountIndex] = `${response.access_token}|${response.refresh_token}`.trim();
+            await lockAndWrite('token.txt', tokenLines.join('\n').trim() + '\n', 'utf-8');
+            logger(`Account ${accountIndex + 1} token refreshed successfully`, "success");
+            return response.access_token;
+        }
+        logger(`Account ${accountIndex + 1} failed to refresh token`, "error");
+        console.log(response);
+        return null;
+    } catch (err) {
+        logger(`Error refreshing token for Account ${accountIndex + 1}: ${err.message}`, "error");
+        return null;
+    } finally {
+        tokenLock = false;
+    }
 }
 
 // Main process for a single account
