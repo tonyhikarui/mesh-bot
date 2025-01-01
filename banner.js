@@ -5,5 +5,5 @@ export const banner = `
     ███╔╝  ██║     ██╔═██╗     ██║       ╚██╔╝  ██╔══██╗██╔══╝  ██╔══██╗
    ███████╗███████╗██║  ██╗    ╚██████╗   ██║   ██████╔╝███████╗██║  ██║
    ╚══════╝╚══════╝╚═╝  ╚═╝     ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝
-            Running Megafin Node BETA EXTENSION CLI Version                
+            Running Meshchain Node BETA EXTENSION CLI Version                
                   t.me/zlkcyber *** github.com/zlkcyber                   `

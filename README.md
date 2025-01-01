@@ -8,8 +8,14 @@ MeshChain is a decentralized network designed to provide affordable, scalable co
 
 # MeshChain Automation Script
 
-## Update
+## New update
+- Auto check usdt balance and auto withdraw
+- Get new tokens for account in `accounts.txt` file, run: `node getToken`
+- New token is saved in `newTokens.txt` file
 
+- Need to reinstall dependencies after `git pull`: `npm install`
+- Added support proxy usage (optional): put your proxies in `proxy.txt`
+- Added Feature Auto Spins
 - Solve captcha using anti-captcha [https://anti-captcha.com/](https://anti-captcha.com/)
 
 This repository contains scripts for automating tasks such as user registration, email verification, claiming rewards, and starting mining on MeshChain.
@@ -65,7 +71,10 @@ This repository contains scripts for automating tasks such as user registration,
    ```
 
 ## Additional Features:
-
+- **Auto check and withdraw usdt**
+   ```bash
+   npm run withdraw
+   ```
 - **Auto Register And Verify Using Temp Mail**
 
   ```bash
