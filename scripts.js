@@ -80,5 +80,21 @@ async function init(headers, unique_id, proxy) {
     const response = await coday(url, 'POST', headers, payload, proxy);
     return response || null;
 }
+async function getTokensInfo(headers, proxy) {
+    const url = 'https://api.meshchain.ai/meshmain/wallet/tokens';
+    const result = await coday(url, 'GET', headers, null, proxy);
 
-export { coday, estimate, claim, start, info, infoSpin, doSpin, init };
+    return result || null;
+}
+async function withdraw(to_address, asset_address, usdtAmount, headers, proxy) {
+    const payload = {
+        to_address,
+        asset_address,
+        total_amount: usdtAmount
+    };
+    const url = 'https://api.meshchain.ai/meshmain/withdraw';
+    const result = await coday(url, 'POST', headers, payload, proxy);
+
+    return result || null;
+}
+export { coday, estimate, claim, start, info, infoSpin, doSpin, init, withdraw, getTokensInfo };

@@ -9,6 +9,7 @@ MeshChain is a decentralized network designed to provide affordable, scalable co
 # MeshChain Automation Script
 
 ## New update
+- Auto check usdt balance and auto withdraw
 - Get new tokens for account in `accounts.txt` file, run: `node getToken`
 - New token is saved in `newTokens.txt` file
 
@@ -70,7 +71,10 @@ This repository contains scripts for automating tasks such as user registration,
    ```
 
 ## Additional Features:
-
+- **Auto check and withdraw usdt**
+   ```bash
+   npm run withdraw
+   ```
 - **Auto Register And Verify Using Temp Mail**
 
   ```bash
